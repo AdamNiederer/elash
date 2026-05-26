@@ -1,0 +1,14 @@
+target
+
+.opencode
+.agent-shell
+.elash
+
+*~
+~*
+#*
+*#
+
+*.elc
+*.eln
+*.md

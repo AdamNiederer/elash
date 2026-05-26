@@ -1,0 +1,42 @@
+* elash.el - Elegant Agentic Shell
+
+Elash is an agentic shell with a radical focus on simplicity, maintainability,
+and not re-inventing the wheel.
+
+Unlike similar packages, elash does not provide a heavy UI layer for your
+session. Instead, your session is just a markdown document. This has many
+fortuitous consequences:
+
+- Most LLMs output markdown, so you get formatting and syntax highlighting for free
+- Saving a transcript can be done by simply calling ~save-buffer~
+- Navigating, opening, and closing sections can be done with ~outline-mode~
+- Read-only transcript portions are defined by ~font-lock~ rules
+- Resuming sessions can be done with ~elash-resume~ when visiting a saved transcript
+
+In addition to this, the buffer is the sole source of truth for almost all
+session state. The only pieces of state that are not contained in the buffer
+are:
+
+- Current and available models and modes for the current session
+- Currently used and total context length
+  
+** Comparison to agent-shell
+
+~agent-shell~ is a significantly more involved package. It supports more agents,
+multiple sessions, and has a more polished UI. However, it's much heavier and
+makes less use of emacs' built in functionality. elash aims to be the eglot to
+agent-shell's lsp-mode.
+
+| Comparison          | elash         | agent-shell |
+|---------------------+---------------+-------------|
+| Max. Sessions       | One (for now) | Multiple    |
+| Transcripts         | Emacs         | Custom      |
+| Syntax Highlighting | Emacs         | Custom      |
+| Harness Support     | Opencode      | Many        |
+| ACP Library         | acp.el        | acp.el      |
+| Lines of Code       | <500          | ~24,000     |
+
+** Emacs Requirements
+
+You must be running Emacs 32+ to make use of this package. This will likely
+increase aggressively as more functionality becomes available.
