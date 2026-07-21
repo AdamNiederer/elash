@@ -27,14 +27,14 @@ multiple sessions, and has a more polished UI. However, it's much heavier and
 makes less use of emacs' built in functionality. elash aims to be the eglot to
 agent-shell's lsp-mode.
 
-| Comparison          | elash         | agent-shell |
-|---------------------+---------------+-------------|
-| Max. Sessions       | One (for now) | Multiple    |
-| Transcripts         | Emacs         | Custom      |
-| Syntax Highlighting | Emacs         | Custom      |
-| Harness Support     | Opencode      | Many        |
-| ACP Library         | acp.el        | acp.el      |
-| Lines of Code       | <500          | ~24,000     |
+| Comparison          | elash    | agent-shell |
+|---------------------+----------+-------------|
+| Max. Sessions       | Multiple | Multiple    |
+| Transcripts         | Emacs    | Custom      |
+| Syntax Highlighting | Emacs    | Custom      |
+| Harness Support     | Opencode | Many        |
+| ACP Library         | acp.el   | acp.el      |
+| Lines of Code       | <500     | ~24,000     |
 
 ** Emacs Requirements
 

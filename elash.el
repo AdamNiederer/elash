@@ -35,7 +35,7 @@
 (require 'elash-acp)
 (require 'elash-ui)
 
-(defvar elash--session nil
+(defvar-local elash--session nil
   "Plist of the current elash session state.
 
 Keys:
@@ -123,15 +123,13 @@ Updates fragments and renders content into the elash buffer."
   "Send a session/new requset using CLIENT to the ACP agent."
   (let ((normalized (elash-acp--normalize (acp-send-request :client client :sync t :request (acp-make-session-new-request :cwd default-directory)))))
     (map-put! elash--session :session-id (map-elt normalized :session-id))
-    (elash--apply-config-options (map-elt normalized :config-options))
-    (elash-set-model "llama.cpp/qwen3.6:35ba3b-iq4_xs")))
+    (elash--apply-config-options (map-elt normalized :config-options))))
 
 (defun elash--resume-session (client id)
   "Send a session/resume request using CLIENT to the ACP agent for session with ID."
   (let ((normalized (elash-acp--normalize (acp-send-request :client client :sync t :request (acp-make-session-resume-request :session-id id :cwd default-directory)))))
     (map-put! elash--session :session-id id)
-    (elash--apply-config-options (map-elt normalized :config-options))
-    (elash-set-model "llama.cpp/qwen3.6:35ba3b-iq4_xs")))
+    (elash--apply-config-options (map-elt normalized :config-options))))
 
 (defun elash--send-prompt (text)
   "Send TEXT as an ACP session/prompt request."
@@ -147,6 +145,10 @@ Updates fragments and renders content into the elash buffer."
   (when elash--session (acp-shutdown :client (map-elt elash--session :client)))
   (setq elash--session nil))
 
+(defun elash-buffer ()
+  "Return the most recently used elash buffer, or nil."
+  (--find (buffer-local-value 'elash--session it) (buffer-list)))
+
 ;;;###autoload
 (defun elash-start (command name environment)
   "Start a session with the given agent configuration.
@@ -154,10 +156,12 @@ Updates fragments and renders content into the elash buffer."
 COMMAND is a list (EXECUTABLE ARGS...) for the ACP agent process.
 NAME is the name of the agent harness.
 ENVIRONMENT is an optional list of \"KEY=val\" strings for the agent."
-  (switch-to-buffer (get-buffer-create (format "*elash: %s*" name)))
+  (switch-to-buffer (generate-new-buffer (format "*elash: %s*" name)))
+  (elash-mode) ;; beware kill-all-local-variables on mode transition
   (elash--init-acp command environment)
   (elash--new-session (map-elt elash--session :client))
-  (elash-ui--setup-buffer (map-elt elash--session :session-id)))
+  (elash-ui--setup-buffer (map-elt elash--session :session-id))
+  (elash-set-model "llama.cpp/qwen3.6:35ba3b-iq4_xs"))
 
 ;;;###autoload
 (defun elash-resume (command name environment)
@@ -166,14 +170,21 @@ ENVIRONMENT is an optional list of \"KEY=val\" strings for the agent."
 COMMAND is a list (EXECUTABLE ARGS...) for the ACP agent process.
 NAME is the name of the agent harness.
 ENVIRONMENT is an optional list of \"KEY=val\" strings for the agent."
+  (elash-mode) ;; beware kill-all-local-variables on mode transition
   (elash--init-acp command environment)
   (elash--resume-session (map-elt elash--session :client) (elash-ui--session-id))
-  (elash-ui--setup-buffer (map-elt elash--session :session-id)))
+  (elash-ui--setup-buffer (map-elt elash--session :session-id))
+  (elash-set-model "llama.cpp/qwen3.6:35ba3b-iq4_xs"))
+
+(defun elash-refocus ()
+  "Refocus the most recently used elash buffer if one exists."
+  (interactive)
+  (if-let* ((buf (elash-buffer))) (pop-to-buffer buf) (message "No elash buffer")))
 
 (defun elash-set-model (model-id)
   "Set the ACP model for the current elash session to MODEL-ID."
   (interactive (list (elash--complete-option :available-models "Model")))
-  (unless (map-elt elash--session :session-id) (user-error "Start an elash session first"))
+  (unless elash--session (user-error "This function must be run in an elash buffer."))
   (acp-send-request :client (map-elt elash--session :client)
                     :request (acp-make-session-set-model-request
                               :session-id (map-elt elash--session :session-id)
@@ -186,7 +197,7 @@ ENVIRONMENT is an optional list of \"KEY=val\" strings for the agent."
 (defun elash-set-mode (mode-id)
   "Set the ACP mode for the current elash session to MODE-ID."
   (interactive (list (elash--complete-option :available-modes "Mode")))
-  (unless (map-elt elash--session :session-id) (user-error "Start an elash session first"))
+  (unless elash--session (user-error "This function must be run in an elash buffer."))
   (acp-send-request :client (map-elt elash--session :client)
                     :request (acp-make-session-set-mode-request
                               :session-id (map-elt elash--session :session-id)
@@ -199,7 +210,7 @@ ENVIRONMENT is an optional list of \"KEY=val\" strings for the agent."
 (defun elash-cancel ()
   "Send an ACP cancellation request for the current session."
   (interactive)
-  (unless (map-elt elash--session :session-id) (user-error "Start an elash session first"))
+  (unless elash--session (user-error "This function must be run in an elash buffer."))
   (acp-send-request :client (map-elt elash--session :client)
                     :request (acp-make-session-cancel-notification :session-id (map-elt elash--session :session-id))
                     :on-success #'elash-ui--finalize-response

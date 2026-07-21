@@ -165,7 +165,6 @@ nil fields keep their previous values."
 
 (defun elash-ui--setup-buffer (id)
   "Prepare a fresh elash buffer for session with ID."
-  (elash-mode)
   (visual-line-mode)
   (when (string-empty-p (buffer-string)) (insert (format "# Session --- %s\n# User\n" id)))
   (goto-char (point-max)))
