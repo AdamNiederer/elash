@@ -14,9 +14,9 @@ fortuitous consequences:
 - Resuming sessions can be done with ~elash-resume~ when visiting a saved transcript
 
 In addition to this, the buffer is the sole source of truth for almost all
-session state. The only pieces of state that are not contained in the buffer
-are:
+session state. The only state not textually contained in the buffer is:
 
+- The ACP client itself
 - Current and available models and modes for the current session
 - Currently used and total context length
   

@@ -145,6 +145,10 @@ Updates fragments and renders content into the elash buffer."
   (when elash--session (acp-shutdown :client (map-elt elash--session :client)))
   (setq elash--session nil))
 
+(defun elash--annotate (str start)
+  "Annotate STR with line numbers starting at START."
+  (->> str (s-lines) (--map-indexed (format "%4d: %s" (+ start it-index) it)) (s-join "\n")))
+
 (defun elash-buffer ()
   "Return the most recently used elash buffer, or nil."
   (--find (buffer-local-value 'elash--session it) (buffer-list)))
@@ -180,6 +184,19 @@ ENVIRONMENT is an optional list of \"KEY=val\" strings for the agent."
   "Refocus the most recently used elash buffer if one exists."
   (interactive)
   (if-let* ((buf (elash-buffer))) (pop-to-buffer buf) (message "No elash buffer")))
+
+(defun elash-send ()
+  "Send the current region or line to the most recently used elash buffer if one exists."
+  (interactive)
+  (let* ((beg (if (use-region-p) (region-beginning) (line-beginning-position)))
+         (end (if (use-region-p) (region-end) (line-end-position)))
+         (str (format "%s:%s-%s\n%s\n"
+                      (buffer-file-name)
+                      (line-number-at-pos beg)
+                      (line-number-at-pos end)
+                      (elash--annotate (buffer-substring beg end) (line-number-at-pos beg)))))
+    (with-current-buffer (elash-buffer)
+      (insert str))))
 
 (defun elash-set-model (model-id)
   "Set the ACP model for the current elash session to MODEL-ID."
