@@ -65,14 +65,11 @@ The buffer is a live markdown transcript:
   ## Message                 - agent message block
   ## <kind> <status> <title> - tool call
 
-Type under the last # User header and press \\[elash-input-submit]."
-  (setq-local mode-line-buffer-identification (format "Elash"))
-  (setq-local header-line-format '(:eval (elash-ui--header-line)))
+Type under the last # User heading and press \\[elash-input-submit]."
+  (setq-local header-line-format '(:eval (elash-ui--heading-line)))
   (font-lock-add-keywords nil '((elash-ui--match-before-prompt 0 '(face nil read-only t) append)))
   (font-lock-add-keywords nil '(("--- [A-Za-z0-9_]+$" 0 'shadow prepend)))
   (add-hook 'kill-buffer-hook #'elash--cleanup nil t))
-
-;; --- Prompt / submission ------------------------------------------------
 
 (defun elash-input-submit ()
   "Send the current draft user prompt to the agent."
@@ -80,20 +77,18 @@ Type under the last # User header and press \\[elash-input-submit]."
   (when (elash-ui--response-active-p)
     (user-error "Agent is still responding"))
   (let ((text (elash-ui--extract-user-prompt)))
-    (unless (s-blank? text)
+    (unless (s-blank-p text)
       (elash-ui--begin-response-section)
       (elash--send-prompt text))))
 
 (defun elash-ui--extract-user-prompt ()
   "Return the text of the last # User section."
-  (save-excursion
-    (goto-char (point-max))
-    (re-search-backward "^# User")
+  (elash-ui--at "^# User"
     (forward-line)
     (s-trim (buffer-substring-no-properties (point) (point-max)))))
 
 (defun elash-ui--begin-response-section ()
-  "Insert # Response header."
+  "Insert # Response heading."
   (goto-char (point-max))
   (insert "\n# Response"))
 
@@ -106,8 +101,6 @@ Type under the last # User header and press \\[elash-input-submit]."
   "Display ACP error ERR and finalize the response."
   (message "elash error: %s" err)
   (elash-ui--finalize-response))
-
-;; --- User permissions --------------------------------------------------
 
 (defun elash-ui--ask-permission (options title)
   "Prompt user for permission with OPTIONS for TITLE.
@@ -125,38 +118,27 @@ Return ANSWER where ANSWER is the selected option-id, or nil if cancelled"
       (let* ((chosen-kind (car (--first (equal (cdr it) answer) kind-choices))))
         (map-elt (--first (equal (map-elt it :kind) chosen-kind) options) :option-id)))))
 
-;; --- Outline navigation helpers ----------------------------------------
-
 (defun elash-ui--response-active-p ()
   "Return non-nil if the last top-level heading is # Response."
-  (save-excursion
-    (goto-char (point-max))
-    (re-search-backward "^# ")
+  (elash-ui--at "^# "
     (not (looking-at "# User"))))
 
-;; --- Rendering ---------------------------------------------------------
+(defmacro elash-ui--at (re &rest body)
+  "Execute BODY at the beginning of the last line matching RE, or point-max if RE is nil."
+  (declare (indent 1))
+  `(save-excursion
+     (goto-char (point-max))
+     (when ,re (re-search-backward ,re nil t))
+     (beginning-of-line)
+     ,@body))
 
-(defun elash-ui--maybe-add-header (id title)
-  "Add header with ID and TITLE if no such header exists"
-  (when (save-excursion
-          (re-search-backward "^## \\(Thinking\\|Message\\)")
-          (not (looking-at (format "^## \\(Thinking\\|Message\\)" title))))
-    (insert (format "\n## %s --- %s\n" title id))))
-
-(defun elash-ui--render-message-chunk (id content)
-  "Create or update a ## Message block for fragment ID with CONTENT."
-  (save-excursion
-    (goto-char (point-max))
-    (elash-ui--maybe-add-header id "Message")
-    (insert content)))
-
-(defun elash-ui--render-thinking (id content)
-  "Create or update a ## Thinking block for fragment ID with CONTENT."
-  (save-excursion
-    (goto-char (point-max))
-    (elash-ui--maybe-add-header id "Thinking")
-    (insert content)
-    (outline-hide-entry)))
+(defun elash-ui--render-chunk (id title content)
+  "Render CONTENT chunk under ## TITLE section for fragment ID.
+When HIDE is non-nil, hide the entry after inserting."
+  (goto-char (point-max))
+  (when (elash-ui--at id (not (looking-at (format "^## %s" title))))
+    (insert (format "\n## %s --- %s\n" title id)))
+  (insert content))
 
 (defun elash-ui--tool-call-state ()
   "Return plist of :kind, :status, :title from tool call heading at point."
@@ -165,31 +147,21 @@ Return ANSWER where ANSWER is the selected option-id, or nil if cancelled"
           :status (car (rassoc (match-string 2) elash-ui--statuses))
           :title (s-trim (match-string 3)))))
 
+(defun elash-ui--format-tool-heading (kind status title id)
+  "Return a tool call heading string for KIND, STATUS, TITLE, ID."
+  (format "## %s %s %s --- %s" (map-elt elash-ui--kinds kind) (map-elt elash-ui--statuses status) title id))
+
 (defun elash-ui--render-tool-call (id kind title status)
   "Create a new tool call block with ID, KIND, TITLE, STATUS under # Response."
-  (save-excursion
-    (goto-char (point-max))
-    (insert (format "\n## %s %s %s --- %s"
-                    (map-elt elash-ui--kinds kind)
-                    (map-elt elash-ui--statuses status)
-                    title id))))
+  (elash-ui--at nil (insert "\n" (elash-ui--format-tool-heading kind status title id))))
 
 (defun elash-ui--update-tool-call (id kind title status)
   "Update KIND, TITLE, STATUS in an existing tool call block with ID.
 nil fields keep their previous values."
-  (save-excursion
-    (goto-char (point-max))
-    (search-backward id)
-    (beginning-of-line)
+  (elash-ui--at id
     (map-let ((:kind p-kind) (:title p-title) (:status p-status)) (elash-ui--tool-call-state)
       (delete-region (point) (save-excursion (end-of-line) (point)))
-      (insert
-       (format "## %s %s %s --- %s"
-               (map-elt elash-ui--kinds (or kind p-kind))
-               (map-elt elash-ui--statuses (or status p-status))
-               (or title p-title) id)))))
-
-;; --- Buffer lifecycle ---------------------------------------------------
+      (insert (elash-ui--format-tool-heading (or kind p-kind) (or status p-status) (or title p-title) id)))))
 
 (defun elash-ui--setup-buffer (id)
   "Prepare a fresh elash buffer for session with ID."
@@ -198,14 +170,11 @@ nil fields keep their previous values."
   (when (string-empty-p (buffer-string)) (insert (format "# Session --- %s\n# User\n" id)))
   (goto-char (point-max)))
 
-(defun elash-ui--header-line ()
-  "Return the header line string."
+(defun elash-ui--heading-line ()
+  "Return the heading line string."
   (if (not elash--session) " elash"
-    (format " model: %s | mode: %s | context: %s/%s"
-            (map-elt elash--session :current-model)
-            (map-elt elash--session :current-mode)
-            (map-elt elash--session :context-used "0")
-            (map-elt elash--session :context-size "?"))))
+    (map-let ((:current-model model) (:current-mode mode) (:context-used used) (:context-size size)) elash--session
+      (format " model: %s | mode: %s | context: %s/%s" model mode used size))))
 
 (defun elash-ui--session-id ()
   "Return the session id in this buffer."

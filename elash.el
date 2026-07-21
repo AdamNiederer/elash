@@ -39,7 +39,6 @@
   "Plist of the current elash session state.
 
 Keys:
-:buffer             - The elash buffer
 :client             - ACP client
 :session-id         - ACP session ID
 :available-models   - List of available models
@@ -52,24 +51,21 @@ Keys:
 (defun elash--on-notification (notification)
   "Handle streaming ACP NOTIFICATION.
 Updates fragments and renders content into the elash buffer."
-  (let ((buf (map-elt elash--session :buffer))
-        (update (map-nested-elt (elash-acp--normalize notification) '(:params :update))))
-    (when (buffer-live-p buf)
-      (with-current-buffer buf
-        (pcase update
-          ((map (:session-update "agent_message_chunk") (:message-id id) (:content (map (:text text))))
-           (elash-ui--render-message-chunk id text))
-          ((map (:session-update "agent_thought_chunk") (:message-id id) (:content (map (:text text))))
-           (elash-ui--render-thinking id text))
-          ((map (:session-update "tool_call") (:tool-call-id tool-call-id) (:kind kind) (:title title) (:status status))
-           (elash-ui--render-tool-call tool-call-id kind title status))
-          ((map (:session-update "current_mode_update" :mode-id id))
-           (map-put! elash--session :current-mode id))
-          ((map (:session-update "tool_call_update") (:tool-call-id tool-call-id) (:kind kind) (:title title) (:status status))
-           (elash-ui--update-tool-call tool-call-id kind title status))
-          ((map (:session-update "usage_update") (:used used) (:size size))
-           (map-put! elash--session :context-used used)
-           (map-put! elash--session :context-size size)))))))
+  (let ((update (map-nested-elt (elash-acp--normalize notification) '(:params :update))))
+    (pcase update
+      ((map (:session-update "agent_message_chunk") (:message-id id) (:content (map (:text text))))
+       (elash-ui--render-chunk id "Message" text))
+      ((map (:session-update "agent_thought_chunk") (:message-id id) (:content (map (:text text))))
+       (elash-ui--render-chunk id "Thinking" text))
+      ((map (:session-update "tool_call") (:tool-call-id tool-call-id) (:kind kind) (:title title) (:status status))
+       (elash-ui--render-tool-call tool-call-id kind title status))
+      ((map (:session-update "current_mode_update" :mode-id id))
+       (map-put! elash--session :current-mode id))
+      ((map (:session-update "tool_call_update") (:tool-call-id tool-call-id) (:kind kind) (:title title) (:status status))
+       (elash-ui--update-tool-call tool-call-id kind title status))
+      ((map (:session-update "usage_update") (:used used) (:size size))
+       (map-put! elash--session :context-used used)
+       (map-put! elash--session :context-size size)))))
 
 (defun elash--on-request (request)
   "Handle incoming ACP REQUEST from the agent."
@@ -87,14 +83,11 @@ Updates fragments and renders content into the elash buffer."
                                    (error `(:error ,(acp-make-error :code -32603 :message "Failed to write file.")))))))
      ((map (:method "session/request_permission") (:id id) (:params (map (:options options) (:tool-call (map (:title title "[unknown tool]"))))))
       (apply #'acp-make-session-request-permission-response
-             `(:request-id ,id ,@(if-let (answer (elash-ui--ask-permission options title)) `(:option-id ,answer) `(:cancelled t))))))))
+             `(:request-id ,id ,@(if-let* ((answer (elash-ui--ask-permission options title))) `(:option-id ,answer) `(:cancelled t))))))))
 
 (defun elash--on-err (err)
   "Handle an ACP error ERR."
-  (let ((buf (map-elt elash--session :buffer)))
-    (when (buffer-live-p buf)
-      (with-current-buffer buf
-        (elash-ui--handle-error err)))))
+  (elash-ui--handle-error err))
 
 (defun elash--apply-config-options (options)
   "Apply config OPTIONS plist list to `elash--session'."
@@ -114,32 +107,17 @@ Updates fragments and renders content into the elash buffer."
     (map-elt (--first (equal (map-elt it :name) name) options) :value)))
 
 (defun elash--init-acp (command environment)
-  "Initialize the ACP connection using COMMAND and ENVIRONMENT."
+  "Initialize the ACP connection using COMMAND and ENVIRONMENT in the current buffer."
   (let ((client (acp-make-client :command (car command)
                                  :command-params (cdr command)
                                  :environment-variables environment
-                                 :context-buffer (map-elt elash--session :buffer))))
-    (map-put! elash--session :client client)
+                                 :context-buffer (current-buffer))))
+    (setq elash--session `(:client ,client))
     (acp-subscribe-to-notifications :client client :on-notification #'elash--on-notification)
     (acp-subscribe-to-requests :client client :on-request #'elash--on-request)
     (acp-send-request :client client :sync t
                       :request (acp-make-initialize-request
-                                :protocol-version 1
-                                :client-info `((name . "elash") (version . ,elash-version))))))
-
-(defun elash--init-acp (command environment)
-  "Initialize the ACP connection using COMMAND and ENVIRONMENT."
-  (let ((client (acp-make-client :command (car command)
-                                 :command-params (cdr command)
-                                 :environment-variables environment
-                                 :context-buffer (map-elt elash--session :buffer))))
-    (map-put! elash--session :client client)
-    (acp-subscribe-to-notifications :client client :on-notification #'elash--on-notification)
-    (acp-subscribe-to-requests :client client :on-request #'elash--on-request)
-    (acp-send-request :client client :sync t
-                      :request (acp-make-initialize-request
-                                :protocol-version 1
-                                :client-info `((name . "elash") (version . ,elash-version))))))
+                                :protocol-version 1))))
 
 (defun elash--new-session (client)
   "Send a session/new requset using CLIENT to the ACP agent."
@@ -157,13 +135,12 @@ Updates fragments and renders content into the elash buffer."
 
 (defun elash--send-prompt (text)
   "Send TEXT as an ACP session/prompt request."
-  (let ((buf (current-buffer)))
-    (acp-send-request
-     :client (map-elt elash--session :client)
-     :request (acp-make-session-prompt-request
-               :session-id (map-elt elash--session :session-id)
-               :prompt `(((type . "text") (text . ,text))))
-     :on-success (lambda (&rest _) (elash-ui--finalize-response)))))
+  (acp-send-request
+   :client (map-elt elash--session :client)
+   :request (acp-make-session-prompt-request
+             :session-id (map-elt elash--session :session-id)
+             :prompt `(((type . "text") (text . ,text))))
+   :on-success (lambda (&rest _) (elash-ui--finalize-response))))
 
 (defun elash--cleanup ()
   "Shut down ACP when the buffer is killed."
@@ -178,7 +155,6 @@ COMMAND is a list (EXECUTABLE ARGS...) for the ACP agent process.
 NAME is the name of the agent harness.
 ENVIRONMENT is an optional list of \"KEY=val\" strings for the agent."
   (switch-to-buffer (get-buffer-create (format "*elash: %s*" name)))
-  (setq elash--session (list :buffer (current-buffer)))
   (elash--init-acp command environment)
   (elash--new-session (map-elt elash--session :client))
   (elash-ui--setup-buffer (map-elt elash--session :session-id)))
@@ -190,7 +166,6 @@ ENVIRONMENT is an optional list of \"KEY=val\" strings for the agent."
 COMMAND is a list (EXECUTABLE ARGS...) for the ACP agent process.
 NAME is the name of the agent harness.
 ENVIRONMENT is an optional list of \"KEY=val\" strings for the agent."
-  (setq elash--session (list :buffer (current-buffer)))
   (elash--init-acp command environment)
   (elash--resume-session (map-elt elash--session :client) (elash-ui--session-id))
   (elash-ui--setup-buffer (map-elt elash--session :session-id)))
